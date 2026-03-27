@@ -1,6 +1,6 @@
 {
   "name": "studio-framer",
-  "version": "1.1.7-beta.0",
+  "version": "1.1.8-beta.1",
   "description": "A lightspeed JavaScript framework for building high-performance web applications with a modern Virtual DOM and built-in routing.",
   "main": "frame.js",
   "types": "./index.d.ts",
