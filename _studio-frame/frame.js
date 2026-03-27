@@ -1,7 +1,23 @@
 import { h, mount, patch, htmlToVNode } from "./vdom.js";
-import { style } from "./css.js";    
+import { style } from "./css.js";
+import { StudioError, errorRegistry, ERROR_CODES, validate } from "./errors.js";
+import { middlewareManager, pluginSystem, HOOK_TYPES, builtinMiddleware } from "./middleware.js";
 
+/**
+ * Main Studio Framer class
+ * @typedef {Object} Studio
+ * @property {HTMLElement|null} base - DOM base element
+ * @property {Object|null} oldVDom - Previous virtual DOM
+ * @property {Object} state - Application state
+ * @property {Object} style - Style object
+ * @property {Object} actions - Event actions
+ * @property {Object} config - Configuration
+ */
 class Studio {
+    /**
+     * Initialize Studio instance
+     * @param {Document} [base=document] - Document or base element reference
+     */
     constructor(base = document) {
         this.base = base ? base.getElementById('base') : null;
         this.oldVDom = null;
@@ -10,14 +26,59 @@ class Studio {
         this.actions = {};
         this.config = {}; // Initialize empty, set later
 
+        this.middlewareManager = middlewareManager;
+        this.errorRegistry = errorRegistry;
+
         this.initRouter();
+        this.initErrorHandlers();
     }
 
-    setConfig(config) {
-        this.config = config;
+    initErrorHandlers() {
+        // Global error listener for middleware errors
+        this.middlewareManager.onError((error, hook, context) => {
+            errorRegistry.record(error);
+        });
+
+        // Window error handler
+        window.addEventListener('error', (event) => {
+            const error = new StudioError(
+                ERROR_CODES.COMPONENT_RENDER_FAILED,
+                `Uncaught error: ${event.message}`,
+                { originalEvent: event }
+            );
+            errorRegistry.record(error);
+        });
+    }
+
+    /**
+     * Set Studio configuration
+     * @param {Object} config - Configuration object
+     * @param {boolean} [config.tailwind] - Enable Tailwind CSS
+     * @param {Object} [config.routes] - Route configuration
+     * @returns {Promise<void>}
+     */
+    async setConfig(config) {
+        // Execute beforeSetConfig middleware
+        const beforeCtx = await this.middlewareManager.execute(HOOK_TYPES.BEFORE_SET_CONFIG, { config });
+        
+        if (beforeCtx.isCancelled()) {
+            const error = new StudioError(
+                ERROR_CODES.NAVIGATION_MISSING_CONFIG,
+                'Config setup was cancelled by middleware'
+            );
+            errorRegistry.record(error);
+            return;
+        }
+
+        this.config = beforeCtx.data.config || config;
+        
         if (this.config.tailwind) {
             this.injectTailwind();
         }
+        
+        // Execute afterSetConfig middleware
+        await this.middlewareManager.execute(HOOK_TYPES.AFTER_SET_CONFIG, { config: this.config });
+        
         // Handle initial route after config is set
         this.handleRoute(window.location.pathname);
     }
@@ -52,35 +113,137 @@ class Studio {
         document.head.appendChild(script);
     }
     
-    setState(newState) {
-        Object.assign(this.state, newState);
-        this.render();
-    } 
-    async render() {
-        if (!this.base && !this.currentFrame) {
-            console.error("Rendering Error: 1101");
+    /**
+     * Update application state
+     * @param {Object} newState - New state values
+     * @returns {Promise<void>}
+     * @throws {StudioError} If state contains circular references
+     */
+    async setState(newState) {
+        // Validate state before update
+        if (validate.hasCircularReference(newState)) {
+            const error = new StudioError(ERROR_CODES.STATE_CIRCULAR_REFERENCE);
+            errorRegistry.record(error);
             return;
         }
 
-        const canvasHTML = await this.getCanvas();
-        if (canvasHTML === null) return;
+        // Execute beforeStateChange middleware
+        const beforeCtx = await this.middlewareManager.execute(HOOK_TYPES.BEFORE_STATE_CHANGE, { 
+            previousState: this.state,
+            newState 
+        });
 
-        let newVDom = htmlToVNode(canvasHTML);
-        this.injectActions(newVDom);
-
-        if (!this.oldVDom) {
-            if (this.base) {
-                this.base.innerHTML = "";
-                mount(newVDom, this.base);
-            }
-        } else {
-            patch(this.base, this.oldVDom, newVDom);
+        if (beforeCtx.isCancelled()) {
+            console.log('State change cancelled by middleware');
+            return;
         }
 
-        this.oldVDom = newVDom;
+        const stateToUpdate = beforeCtx.data.newState || newState;
+        Object.assign(this.state, stateToUpdate);
+        
+        // Execute afterStateChange middleware
+        await this.middlewareManager.execute(HOOK_TYPES.AFTER_STATE_CHANGE, { 
+            state: this.state 
+        });
 
-        if (this.style["style"]) {
-            this.updateStyles();
+        this.render();
+    } 
+    /**
+     * Render the current frame
+     * @returns {Promise<void>}
+     * @throws {StudioError} If rendering fails
+     */
+    async render() {
+        try {
+            // Execute beforeRender middleware
+            await this.middlewareManager.execute(HOOK_TYPES.BEFORE_RENDER, { 
+                state: this.state 
+            });
+
+            if (!this.base && !this.currentFrame) {
+                throw new StudioError(ERROR_CODES.RENDER_NO_BASE);
+            }
+
+            const canvasHTML = await this.getCanvas();
+            if (canvasHTML === null) {
+                throw new StudioError(ERROR_CODES.RENDER_CANVAS_FAILED);
+            }
+
+            let newVDom;
+            try {
+                newVDom = htmlToVNode(canvasHTML);
+            } catch (e) {
+                throw new StudioError(
+                    ERROR_CODES.VDOM_HTML_PARSE_ERROR,
+                    `Failed to parse HTML: ${e.message}`
+                );
+            }
+
+            if (!validate.isValidVNode(newVDom)) {
+                throw new StudioError(ERROR_CODES.RENDER_INVALID_VDOM);
+            }
+
+            this.injectActions(newVDom);
+
+            if (!this.oldVDom) {
+                if (this.base) {
+                    this.base.innerHTML = "";
+                    try {
+                        mount(newVDom, this.base);
+                    } catch (e) {
+                        throw new StudioError(
+                            ERROR_CODES.VDOM_MOUNT_FAILED,
+                            `Mount failed: ${e.message}`
+                        );
+                    }
+                }
+            } else {
+                try {
+                    // Execute beforePatch middleware
+                    await this.middlewareManager.execute(HOOK_TYPES.BEFORE_PATCH, { 
+                        oldVNode: this.oldVDom,
+                        newVNode: newVDom
+                    });
+
+                    patch(this.base, this.oldVDom, newVDom);
+
+                    // Execute afterPatch middleware
+                    await this.middlewareManager.execute(HOOK_TYPES.AFTER_PATCH, { 
+                        vnode: newVDom
+                    });
+                } catch (e) {
+                    throw new StudioError(
+                        ERROR_CODES.VDOM_PATCH_FAILED,
+                        `Patch failed: ${e.message}`
+                    );
+                }
+            }
+
+            this.oldVDom = newVDom;
+
+            if (this.style["style"]) {
+                this.updateStyles();
+            }
+
+            // Execute afterRender middleware
+            await this.middlewareManager.execute(HOOK_TYPES.AFTER_RENDER, { 
+                vnode: newVDom 
+            });
+        } catch (error) {
+            if (!(error instanceof StudioError)) {
+                error = new StudioError(
+                    ERROR_CODES.RENDER_CANVAS_FAILED,
+                    error.message,
+                    { originalError: error }
+                );
+            }
+
+            errorRegistry.record(error);
+
+            // Execute renderError middleware
+            await this.middlewareManager.execute(HOOK_TYPES.RENDER_ERROR, { 
+                error 
+            });
         }
     }
 
@@ -111,49 +274,193 @@ class Studio {
         }
     }
 
-    navigate(template, props = null, pushState = true) {
-        // Handle path strings
-        if (typeof template === 'string') {
-            const component = this.config.routes[template];
-            if (component) {
-                if (pushState) history.pushState({}, '', template);
-                return this.navigate(component, props, false);
-            }
-            console.error(`Route ${template} not found`);
-            return;
-        }
-
-        const frame = (typeof template === 'function') ? template(props) : template;
-        this.currentFrame = frame.canvas;
-        
-        this.actions = {};
-        if (frame.action) {
-            const actions = Array.isArray(frame.action) ? frame.action : [frame.action];
-            actions.forEach(act => {
-                this.addEvent(act.id, { func: act.func, type: act.type });
+    /**
+     * Navigate to a route or frame
+     * @param {string|Function|Object} template - Route path, component function, or frame object
+     * @param {Object} [props=null] - Properties to pass to component
+     * @param {boolean} [pushState=true] - Whether to update browser history
+     * @returns {Promise<void>}
+     * @throws {StudioError} If navigation fails or route not found
+     */
+    async navigate(template, props = null, pushState = true) {
+        try {
+            // Execute beforeNavigate middleware
+            const beforeCtx = await this.middlewareManager.execute(HOOK_TYPES.BEFORE_NAVIGATE, { 
+                template,
+                props 
             });
-        }
 
-        if (frame.style) {
-            const styleText = typeof frame.style === 'string' ? frame.style : JSON.stringify(frame.style);
-            this.addStyle(styleText);
-        }
+            if (beforeCtx.isCancelled()) {
+                const error = new StudioError(
+                    ERROR_CODES.NAVIGATION_INVALID_TEMPLATE,
+                    'Navigation was cancelled by middleware'
+                );
+                errorRegistry.record(error);
+                return;
+            }
 
-        if (frame.state) {
-            this.setState(frame.state);
-        } else {
-            this.render(); // Ensure render if no state provided
-        }
+            template = beforeCtx.data.template || template;
+            props = beforeCtx.data.props || props;
 
-        // Auto-update URL if pushState is true and we can find a matching path
-        if (pushState && typeof template === 'function') {
-            const path = Object.keys(this.config.routes).find(key => this.config.routes[key] === template);
-            if (path) history.pushState({}, '', path);
+            // Handle path strings
+            if (typeof template === 'string') {
+                if (!this.config.routes) {
+                    throw new StudioError(ERROR_CODES.NAVIGATION_MISSING_CONFIG);
+                }
+
+                const component = this.config.routes[template];
+                if (component) {
+                    if (pushState) history.pushState({}, '', template);
+                    return this.navigate(component, props, false);
+                }
+                throw new StudioError(
+                    ERROR_CODES.NAVIGATION_ROUTE_NOT_FOUND,
+                    `Route "${template}" not found in config`
+                );
+            }
+
+            // Validate template type
+            if (typeof template !== 'function' && typeof template !== 'object') {
+                throw new StudioError(
+                    ERROR_CODES.NAVIGATION_INVALID_TEMPLATE,
+                    'Template must be a function, object, or route path string'
+                );
+            }
+
+            const frame = (typeof template === 'function') ? template(props) : template;
+            
+            if (!frame || typeof frame.canvas === 'undefined') {
+                throw new StudioError(
+                    ERROR_CODES.COMPONENT_RENDER_FAILED,
+                    'Component must return an object with a canvas property'
+                );
+            }
+
+            this.currentFrame = frame.canvas;
+            
+            this.actions = {};
+            if (frame.action) {
+                const actions = Array.isArray(frame.action) ? frame.action : [frame.action];
+                actions.forEach(act => {
+                    if (!act.id || !act.func || !act.type) {
+                        const error = new StudioError(
+                            ERROR_CODES.COMPONENT_INVALID_PROPS,
+                            'Action must have id, func, and type properties'
+                        );
+                        errorRegistry.record(error);
+                        return;
+                    }
+                    this.addEvent(act.id, { func: act.func, type: act.type });
+                });
+            }
+
+            if (frame.style) {
+                const styleText = typeof frame.style === 'string' ? frame.style : JSON.stringify(frame.style);
+                this.addStyle(styleText);
+            }
+
+            // Execute afterNavigate middleware
+            await this.middlewareManager.execute(HOOK_TYPES.AFTER_NAVIGATE, { 
+                frame,
+                props 
+            });
+
+            if (frame.state) {
+                this.setState(frame.state);
+            } else {
+                this.render();
+            }
+
+            // Auto-update URL if pushState is true and we can find a matching path
+            if (pushState && typeof template === 'function') {
+                const path = Object.keys(this.config.routes).find(key => this.config.routes[key] === template);
+                if (path) history.pushState({}, '', path);
+            }
+        } catch (error) {
+            if (!(error instanceof StudioError)) {
+                error = new StudioError(
+                    ERROR_CODES.NAVIGATION_INVALID_TEMPLATE,
+                    error.message,
+                    { originalError: error }
+                );
+            }
+
+            errorRegistry.record(error);
+
+            // Execute navigateError middleware
+            await this.middlewareManager.execute(HOOK_TYPES.NAVIGATE_ERROR, { 
+                error,
+                template,
+                props 
+            });
         }
     }
 
-    addEvent(id, { func, type }) {
-        this.actions[id] = { func, type };
+    /**
+     * Add event handler
+     * @param {string} id - Unique event identifier
+     * @param {Object} config - Event configuration
+     * @param {Function} config.func - Event handler function
+     * @param {string} config.type - Event type (click, change, etc.)
+     * @returns {Promise<void>}
+     */
+    async addEvent(id, { func, type }) {
+        // Validate event properties
+        if (!id || !func || !type) {
+            const error = new StudioError(
+                ERROR_CODES.COMPONENT_INVALID_PROPS,
+                'Event must have id, func, and type'
+            );
+            errorRegistry.record(error);
+            return;
+        }
+
+        if (typeof func !== 'function') {
+            const error = new StudioError(
+                ERROR_CODES.COMPONENT_INVALID_PROPS,
+                `Event handler must be a function, got ${typeof func}`
+            );
+            errorRegistry.record(error);
+            return;
+        }
+
+        // Wrap the handler with middleware
+        const wrappedFunc = async (event) => {
+            try {
+                // Execute beforeAction middleware
+                await this.middlewareManager.execute(HOOK_TYPES.BEFORE_ACTION, { 
+                    id,
+                    type,
+                    event 
+                });
+
+                await func(event);
+
+                // Execute afterAction middleware
+                await this.middlewareManager.execute(HOOK_TYPES.AFTER_ACTION, { 
+                    id,
+                    type,
+                    event 
+                });
+            } catch (error) {
+                const studioError = error instanceof StudioError ? error : new StudioError(
+                    ERROR_CODES.ACTION_ERROR,
+                    `Action failed: ${error.message}`,
+                    { originalError: error }
+                );
+                errorRegistry.record(studioError);
+
+                // Execute actionError middleware
+                await this.middlewareManager.execute(HOOK_TYPES.ACTION_ERROR, { 
+                    error: studioError,
+                    id,
+                    type,
+                    event 
+                });
+            }
+        };
+
+        this.actions[id] = { func: wrappedFunc, type };
     }
 
     addStyle(style) {
@@ -209,4 +516,21 @@ const usePixel = (state, initialValue) => {
     return [getPixel, setPixel];
 };
 
-export { studio, navigate, usePixel, useStore, injectCSS, style }
+export { 
+    studio, 
+    navigate, 
+    usePixel, 
+    useStore, 
+    injectCSS, 
+    style,
+    // Error handling exports
+    errorRegistry,
+    StudioError,
+    ERROR_CODES,
+    validate,
+    // Middleware exports
+    middlewareManager,
+    pluginSystem,
+    HOOK_TYPES,
+    builtinMiddleware
+}

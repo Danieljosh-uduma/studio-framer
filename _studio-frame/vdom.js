@@ -2,6 +2,8 @@
  * Virtual DOM Engine for Studio Framer
  */
 
+import { StudioError, ERROR_CODES, validate } from "./errors.js";
+
 export const h = (type, props, ...children) => {
     return {
         type,
@@ -28,10 +30,26 @@ const isEvent = (key) => key.startsWith("on");
 const isProperty = (key) => key !== "children" && !isEvent(key);
 
 export const mount = (vnode, container) => {
-    const dom =
-        vnode.type === "TEXT_ELEMENT"
-            ? document.createTextNode("")
-            : document.createElement(vnode.type);
+    if (!validate.isValidVNode(vnode)) {
+        throw new StudioError(ERROR_CODES.VDOM_INVALID_TYPE, 'Invalid vnode structure');
+    }
+
+    if (!container) {
+        throw new StudioError(ERROR_CODES.VDOM_MOUNT_FAILED, 'Container is required for mounting');
+    }
+
+    let dom;
+    try {
+        dom =
+            vnode.type === "TEXT_ELEMENT"
+                ? document.createTextNode("")
+                : document.createElement(vnode.type);
+    } catch (e) {
+        throw new StudioError(
+            ERROR_CODES.VDOM_INVALID_TYPE,
+            `Failed to create element of type ${vnode.type}: ${e.message}`
+        );
+    }
 
     // Add event listeners
     Object.keys(vnode.props)
@@ -133,9 +151,34 @@ export const patch = (parent, oldVNode, newVNode) => {
  * Note: Limited implementation for proof of concept
  */
 export const htmlToVNode = (htmlString) => {
-    const parser = new DOMParser();
-    const doc = parser.parseFromString(htmlString.trim(), "text/html");
-    return domToVNode(doc.body.firstChild);
+    if (typeof htmlString !== 'string') {
+        throw new StudioError(
+            ERROR_CODES.VDOM_HTML_PARSE_ERROR,
+            'HTML must be a string'
+        );
+    }
+
+    try {
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(htmlString.trim(), "text/html");
+        
+        // Check for parse errors
+        if (doc.body.innerHTML.includes('parsererror')) {
+            throw new Error('HTML parse error detected');
+        }
+
+        if (!doc.body.firstChild) {
+            throw new Error('HTML produced no elements');
+        }
+
+        return domToVNode(doc.body.firstChild);
+    } catch (e) {
+        throw new StudioError(
+            ERROR_CODES.VDOM_HTML_PARSE_ERROR,
+            `Failed to parse HTML: ${e.message}`,
+            { htmlString: htmlString.substring(0, 100) }
+        );
+    }
 };
 
 const domToVNode = (dom) => {
