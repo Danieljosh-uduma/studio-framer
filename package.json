@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "description": "A modern web application built with Studio Framer",
   "main": "index.js",
+  "types": "_studio-frame/types.d.ts",
   "type": "module",
   "scripts": {
     "start": "node _studio-frame/server.js",

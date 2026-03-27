@@ -3,7 +3,21 @@ import { style } from "./css.js";
 import { StudioError, errorRegistry, ERROR_CODES, validate } from "./errors.js";
 import { middlewareManager, pluginSystem, HOOK_TYPES, builtinMiddleware } from "./middleware.js";
 
+/**
+ * Main Studio Framer class
+ * @typedef {Object} Studio
+ * @property {HTMLElement|null} base - DOM base element
+ * @property {Object|null} oldVDom - Previous virtual DOM
+ * @property {Object} state - Application state
+ * @property {Object} style - Style object
+ * @property {Object} actions - Event actions
+ * @property {Object} config - Configuration
+ */
 class Studio {
+    /**
+     * Initialize Studio instance
+     * @param {Document} [base=document] - Document or base element reference
+     */
     constructor(base = document) {
         this.base = base ? base.getElementById('base') : null;
         this.oldVDom = null;
@@ -36,6 +50,13 @@ class Studio {
         });
     }
 
+    /**
+     * Set Studio configuration
+     * @param {Object} config - Configuration object
+     * @param {boolean} [config.tailwind] - Enable Tailwind CSS
+     * @param {Object} [config.routes] - Route configuration
+     * @returns {Promise<void>}
+     */
     async setConfig(config) {
         // Execute beforeSetConfig middleware
         const beforeCtx = await this.middlewareManager.execute(HOOK_TYPES.BEFORE_SET_CONFIG, { config });
@@ -92,6 +113,12 @@ class Studio {
         document.head.appendChild(script);
     }
     
+    /**
+     * Update application state
+     * @param {Object} newState - New state values
+     * @returns {Promise<void>}
+     * @throws {StudioError} If state contains circular references
+     */
     async setState(newState) {
         // Validate state before update
         if (validate.hasCircularReference(newState)) {
@@ -121,6 +148,11 @@ class Studio {
 
         this.render();
     } 
+    /**
+     * Render the current frame
+     * @returns {Promise<void>}
+     * @throws {StudioError} If rendering fails
+     */
     async render() {
         try {
             // Execute beforeRender middleware
@@ -242,6 +274,14 @@ class Studio {
         }
     }
 
+    /**
+     * Navigate to a route or frame
+     * @param {string|Function|Object} template - Route path, component function, or frame object
+     * @param {Object} [props=null] - Properties to pass to component
+     * @param {boolean} [pushState=true] - Whether to update browser history
+     * @returns {Promise<void>}
+     * @throws {StudioError} If navigation fails or route not found
+     */
     async navigate(template, props = null, pushState = true) {
         try {
             // Execute beforeNavigate middleware
@@ -356,6 +396,14 @@ class Studio {
         }
     }
 
+    /**
+     * Add event handler
+     * @param {string} id - Unique event identifier
+     * @param {Object} config - Event configuration
+     * @param {Function} config.func - Event handler function
+     * @param {string} config.type - Event type (click, change, etc.)
+     * @returns {Promise<void>}
+     */
     async addEvent(id, { func, type }) {
         // Validate event properties
         if (!id || !func || !type) {
