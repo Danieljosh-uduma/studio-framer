@@ -1,7 +1,11 @@
-import { h, mount, patch, htmlToVNode } from "./vdom.js";
+import { h, mount, patch, htmlToVNode, Fragment } from "./vdom.js";
 import { style } from "./css.js";
 import { StudioError, errorRegistry, ERROR_CODES, validate } from "./errors.js";
 import { middlewareManager, pluginSystem, HOOK_TYPES, builtinMiddleware } from "./middleware.js";
+import { createSignal, createComputed, createState, createEffect, signalContext } from "./signals.js";
+import { html, css, fragment, templateUtils } from "./template.js";
+import { usePixelEffect, useLayoutEffect, useMemo, useCallback, useReducer, useRef, cleanupHooks } from "./lifecycle.js";
+import { createScopedStyles, useStyles, createStyleModule, createTheme, createKeyframes } from "./styling.js";
 
 /**
  * Main Studio Framer class
@@ -532,5 +536,32 @@ export {
     middlewareManager,
     pluginSystem,
     HOOK_TYPES,
-    builtinMiddleware
+    builtinMiddleware,
+    // Signals & Reactivity
+    createSignal,
+    createComputed,
+    createState,
+    createEffect,
+    signalContext,
+    // Template System
+    html,
+    css,
+    fragment,
+    templateUtils,
+    // Lifecycle Hooks
+    usePixelEffect,
+    useLayoutEffect,
+    useMemo,
+    useCallback,
+    useReducer,
+    useRef,
+    cleanupHooks,
+    // Styling System
+    createScopedStyles,
+    useStyles,
+    createStyleModule,
+    createTheme,
+    createKeyframes,
+    // VNode Components
+    Fragment
 }
