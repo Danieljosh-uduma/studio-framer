@@ -500,6 +500,292 @@ export function usePixel(value: number): number;
 export function useStore(key: string): [any, (value: any) => void];
 
 // ============================================================================
+// SIGNALS & REACTIVITY FUNCTIONS
+// ============================================================================
+
+/**
+ * Create a reactive signal
+ * @param initialValue - Initial signal value
+ * @returns Signal tuple with getter and setter
+ */
+export function createSignal<T>(initialValue: T): Signal<T>;
+
+/**
+ * Create a computed (derived) signal
+ * @param computeFn - Function that computes the value
+ * @returns Computed signal getter
+ */
+export function createComputed<T>(computeFn: () => T): ComputedSignal<T>;
+
+/**
+ * Create a state signal for objects
+ * @param initialValue - Initial state value
+ * @returns State signal with batch update support
+ */
+export function createState<T extends Record<string, any>>(initialValue: T): [SignalGetter<T>, (updates: Partial<T>) => void];
+
+/**
+ * Create a reactive effect
+ * @param effectFn - Effect function
+ * @param dependencies - Optional dependency array
+ * @returns Cleanup function
+ */
+export function createEffect(effectFn: EffectFunction, dependencies?: any[]): () => void;
+
+/**
+ * Create a combined signal from multiple signals
+ * @param signals - Array of signal getters
+ * @param combiner - Function to combine signal values
+ * @returns Combined signal getter
+ */
+export function createCombined<T>(signals: SignalGetter<any>[], combiner: (...values: any[]) => T): ComputedSignal<T>;
+
+// ============================================================================
+// TEMPLATE FUNCTIONS
+// ============================================================================
+
+/**
+ * HTML template tag for creating VNodes
+ * @param strings - Template strings
+ * @param values - Interpolated values
+ * @returns Virtual node or array of nodes
+ */
+export function html(strings: TemplateStringsArray, ...values: any[]): VNode | VNode[];
+
+/**
+ * CSS template tag for scoped styling
+ * @param strings - CSS strings
+ * @param values - CSS values
+ * @returns Scoped style result with className
+ */
+export function css(strings: TemplateStringsArray, ...values: any[]): CSSResult;
+
+/**
+ * Fragment template tag for multi-root components
+ * @param strings - Template strings
+ * @param values - Interpolated values
+ * @returns Array of virtual nodes
+ */
+export function fragment(strings: TemplateStringsArray, ...values: any[]): VNode[];
+
+// ============================================================================
+// LIFECYCLE HOOK FUNCTIONS
+// ============================================================================
+
+/**
+ * Effect hook - runs after render
+ * @param effectFn - Effect function
+ * @param dependencies - Dependency array
+ */
+export function usePixelEffect(effectFn: EffectFunction, dependencies?: any[]): void;
+
+/**
+ * Layout effect hook - runs synchronously after DOM mutations
+ * @param effectFn - Effect function
+ * @param dependencies - Dependency array
+ */
+export function useLayoutEffect(effectFn: EffectFunction, dependencies?: any[]): void;
+
+/**
+ * Memoization hook - caches value based on dependencies
+ * @param computeFn - Function that computes value
+ * @param dependencies - Dependency array
+ * @returns Memoized value
+ */
+export function useMemo<T>(computeFn: MemoFunction<T>, dependencies?: any[]): T;
+
+/**
+ * Callback hook - memoizes function
+ * @param callback - Function to memoize
+ * @param dependencies - Dependency array
+ * @returns Memoized callback
+ */
+export function useCallback<T extends (...args: any[]) => any>(callback: T, dependencies?: any[]): T;
+
+/**
+ * Reducer hook - complex state management
+ * @param reducer - Reducer function
+ * @param initialState - Initial state
+ * @returns Current state and dispatch function
+ */
+export function useReducer<S, A>(reducer: ReducerFunction<S, A>, initialState: S): [S, (action: A) => void];
+
+/**
+ * Ref hook - persistent mutable container
+ * @param initialValue - Initial value
+ * @returns Ref object
+ */
+export function useRef<T>(initialValue: T): RefObject<T>;
+
+/**
+ * Cleanup all hooks for component
+ * @param component - Component instance
+ */
+export function cleanupHooks(component: any): void;
+
+// ============================================================================
+// STYLING FUNCTIONS
+// ============================================================================
+
+/**
+ * Create scoped styles for a component
+ * @param componentName - Component identifier
+ * @param styles - Style definitions
+ * @returns Scoped style object with unique class names
+ */
+export function createScopedStyles(componentName: string, styles: Record<string, Record<string, string | number>>): ScopedStyles;
+
+/**
+ * Style hook - creates scoped styles
+ * @param styles - Style definitions
+ * @param componentName - Optional component name
+ * @returns Scoped style object
+ */
+export function useStyles(styles: Record<string, Record<string, string | number>>, componentName?: string): ScopedStyles;
+
+/**
+ * Create CSS module-like object
+ * @param componentName - Component identifier
+ * @param styles - Style definitions
+ * @returns Style module object
+ */
+export function createStyleModule(componentName: string, styles: Record<string, Record<string, string | number>>): ScopedStyles;
+
+/**
+ * Create theme with CSS variables
+ * @param theme - Theme object
+ * @returns Theme object with var() method
+ */
+export function createTheme(theme: Record<string, string | number>): Theme;
+
+/**
+ * Create keyframe animation
+ * @param name - Animation name
+ * @param frames - Keyframe definitions
+ * @returns Animation name
+ */
+export function createKeyframes(name: string, frames: KeyframeDefinition): string;
+
+/**
+ * Merge multiple style objects
+ * @param styleObjects - Style objects to merge
+ * @returns Merged style object
+ */
+export function mergeStyles(...styleObjects: Record<string, any>[]): Record<string, any>;
+
+// ============================================================================
+// SIGNALS & REACTIVITY TYPES
+// ============================================================================
+
+/**
+ * Signal getter function
+ */
+export type SignalGetter<T> = () => T;
+
+/**
+ * Signal setter function
+ */
+export type SignalSetter<T> = (value: T | ((prev: T) => T)) => void;
+
+/**
+ * Signal tuple
+ */
+export type Signal<T> = [SignalGetter<T>, SignalSetter<T>];
+
+/**
+ * Computed signal (read-only getter)
+ */
+export type ComputedSignal<T> = () => T;
+
+// ============================================================================
+// TEMPLATE TYPES
+// ============================================================================
+
+/**
+ * HTML template tag result
+ */
+export interface TemplateResult {
+  type: string;
+  props: Record<string, any>;
+  children?: TemplateResult[];
+}
+
+/**
+ * CSS template result with scoped styling
+ */
+export interface CSSResult {
+  style: string;
+  className: string;
+  toString(): string;
+}
+
+// ============================================================================
+// LIFECYCLE HOOK TYPES
+// ============================================================================
+
+/**
+ * Effect cleanup function
+ */
+export type EffectCleanup = () => void;
+
+/**
+ * Effect function
+ */
+export type EffectFunction = () => void | EffectCleanup;
+
+/**
+ * Memo function
+ */
+export type MemoFunction<T> = () => T;
+
+/**
+ * Reducer function
+ */
+export type ReducerFunction<S, A> = (state: S, action: A) => S;
+
+/**
+ * Ref object
+ */
+export interface RefObject<T> {
+  current: T;
+}
+
+// ============================================================================
+// STYLING TYPES
+// ============================================================================
+
+/**
+ * Scoped style object
+ */
+export interface ScopedStyles {
+  [key: string]: string;
+}
+
+/**
+ * Theme object
+ */
+export interface Theme {
+  [key: string]: string | number;
+  var(key: string): string;
+}
+
+/**
+ * Responsive style configuration
+ */
+export interface ResponsiveConfig {
+  [breakpoint: string]: {
+    [prop: string]: string | number;
+  };
+}
+
+/**
+ * Keyframe definition
+ */
+export interface KeyframeDefinition {
+  [percent: string]: Record<string, string | number>;
+}
+
+// ============================================================================
 // UTILITY TYPES
 // ============================================================================
 

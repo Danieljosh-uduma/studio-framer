@@ -4,6 +4,11 @@
 
 import { StudioError, ERROR_CODES, validate } from "./errors.js";
 
+/**
+ * Fragment component for multi-root elements
+ */
+export const Fragment = Symbol('Fragment');
+
 export const h = (type, props, ...children) => {
     return {
         type,
@@ -36,6 +41,12 @@ export const mount = (vnode, container) => {
 
     if (!container) {
         throw new StudioError(ERROR_CODES.VDOM_MOUNT_FAILED, 'Container is required for mounting');
+    }
+
+    // Handle fragments - mount children directly
+    if (vnode.type === Fragment) {
+        vnode.props.children.forEach((child) => mount(child, container));
+        return container;
     }
 
     let dom;
